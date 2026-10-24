@@ -40,6 +40,39 @@ def generate_credentials() -> Tuple[str, str]:
     return username, password
 
 
+PROXY_BRIDGE = "http://127.0.0.1:10801"
+
+
+def rotate_proxy_ip() -> str:
+    try:
+        with urllib.request.urlopen(f"{PROXY_BRIDGE}/__new_session", timeout=5) as r:
+            return r.read().decode().strip()
+    except Exception:
+        return ""
+
+
+def robust_api_post(url: str, data: dict, headers: dict, timeout: int = 20) -> Tuple[int, bytes]:
+    encoded = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(url, data=encoded, headers=headers, method="POST")
+    
+    # Try direct first
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):
+            # Rotate residential IP and retry via proxy tunnel
+            sid = rotate_proxy_ip()
+            print_sub(f"Rate-limit or block ({e.code})! Rotated residential proxy (SID: {sid}), retrying...")
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": PROXY_BRIDGE, "https": PROXY_BRIDGE})
+            )
+            req2 = urllib.request.Request(url, data=encoded, headers=headers, method="POST")
+            with opener.open(req2, timeout=timeout) as r2:
+                return r2.status, r2.read()
+        raise
+
+
 def print_step(step: str):
     print(f"\n[+] {step}", flush=True)
 
@@ -163,33 +196,31 @@ def poll_activation_email(tempmail: TempikClient, email: str, max_wait: int = 40
 
 def activate_account(uid: str, token: str) -> bool:
     print_step("Step 3: Activating account via Respan REST API...")
-    req = urllib.request.Request(
+    headers = {"Content-Type": "application/json", "User-Agent": UA}
+    status, _ = robust_api_post(
         "https://api.respan.ai/auth/users/activation/",
-        data=json.dumps({"uid": uid, "token": token}).encode(),
-        headers={"Content-Type": "application/json", "User-Agent": UA},
-        method="POST"
+        {"uid": uid, "token": token},
+        headers
     )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        if r.status in (200, 204):
-            print_sub("Account successfully activated (HTTP 204)!")
-            return True
+    if status in (200, 204):
+        print_sub("Account successfully activated (HTTP 204)!")
+        return True
     return False
 
 
 def login_jwt(email: str, password: str) -> Tuple[str, str]:
     print_step("Step 4: Authenticating JWT session...")
-    req = urllib.request.Request(
+    headers = {"Content-Type": "application/json", "User-Agent": UA}
+    _, raw = robust_api_post(
         "https://api.respan.ai/auth/jwt/create/",
-        data=json.dumps({"email": email, "password": password}).encode(),
-        headers={"Content-Type": "application/json", "User-Agent": UA},
-        method="POST"
+        {"email": email, "password": password},
+        headers
     )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        res = json.loads(r.read().decode())
-        access = res["access"]
-        refresh = res["refresh"]
-        print_sub(f"JWT access token acquired (len: {len(access)})!")
-        return access, refresh
+    res = json.loads(raw.decode())
+    access = res["access"]
+    refresh = res["refresh"]
+    print_sub(f"JWT access token acquired (len: {len(access)})!")
+    return access, refresh
 
 
 def bootstrap_workspace(access_token: str, user_id: int) -> Tuple[str, str]:
@@ -206,19 +237,17 @@ def bootstrap_workspace(access_token: str, user_id: int) -> Tuple[str, str]:
         "workspace_name": "Default",
         "organization_size": 1
     }
-    req = urllib.request.Request(
+    _, raw = robust_api_post(
         "https://api.respan.ai/user/organizations/",
-        data=json.dumps(payload).encode(),
-        headers=headers,
-        method="POST"
+        payload,
+        headers
     )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        res = json.loads(r.read().decode())
-        onboarding_key = res.get("onboarding_key", "")
-        unique_org_id = res.get("unique_organization_id", "")
-        print_sub(f"Workspace created! Org ID: {unique_org_id}")
-        print_sub(f"Gateway Key: {onboarding_key}")
-        return onboarding_key, unique_org_id
+    res = json.loads(raw.decode())
+    onboarding_key = res.get("onboarding_key", "")
+    unique_org_id = res.get("unique_organization_id", "")
+    print_sub(f"Workspace created! Org ID: {unique_org_id}")
+    print_sub(f"Gateway Key: {onboarding_key}")
+    return onboarding_key, unique_org_id
 
 
 def verify_chat_model(api_key: str, model: str = "kimi-k3.1-pro") -> str:
