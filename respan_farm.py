@@ -356,13 +356,10 @@ async def generate_single_account(sync_9router: bool = True) -> Optional[Dict[st
     tempmail = TempikClient()
     username, password = generate_credentials()
     
-    # Randomize domain across compliant corporate domains to avoid per-domain throttling
-    domain = random.choice(["fantech.tech", "mediterranean.biz.id", "ngurah.biz.id"])
+    # Strictly verified working work email domains
+    domain = random.choice(["holysmp.me", "websurf.web.id"])
     email = tempmail.create_inbox(local_part=username, domain=domain)
     print(f"\n{'='*60}\nGenerating account: {email}\n{'='*60}")
-
-    # Rotate proxy session for clean IP routing
-    rotate_proxy_ip()
 
     async with AsyncCamoufox(headless=True) as browser:
         page = await browser.new_page()
