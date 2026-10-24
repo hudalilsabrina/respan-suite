@@ -362,32 +362,35 @@ async def generate_single_account(sync_9router: bool = True) -> Optional[Dict[st
     return rec
 
 
-async def main_async(count: int, sync_9router: bool):
+async def main_async(count: int, sync_9router: bool, gap: int = 6):
     success = 0
+    print(f"=== Starting Batch Generation of {count} Accounts ===", flush=True)
     for i in range(count):
-        print(f"\n>>> Running Batch Job {i+1} of {count} <<<")
+        print(f"\n>>> Running Batch Job {i+1} of {count} <<<", flush=True)
         try:
             res = await generate_single_account(sync_9router=sync_9router)
             if res:
                 success += 1
+                print(f"[PROGRESS] Completed: {success}/{count} accounts", flush=True)
         except Exception as e:
             print(f"[-] Error on job {i+1}: {e}", flush=True)
+            await asyncio.sleep(5)
 
         if i < count - 1:
-            wait_gap = 10
-            print(f"\nWaiting {wait_gap}s before next account...")
-            await asyncio.sleep(wait_gap)
+            print(f"Waiting {gap}s before next account...", flush=True)
+            await asyncio.sleep(gap)
 
-    print(f"\n{'='*60}\nBatch Summary: {success}/{count} accounts created successfully!\n{'='*60}")
+    print(f"\n{'='*60}\nBatch Summary: {success}/{count} accounts created successfully!\n{'='*60}", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Respan AI Suite - Kimi K3.1 Pro Farm & 9router Pool")
     parser.add_argument("-n", "--count", type=int, default=1, help="Number of accounts to generate (default: 1)")
+    parser.add_argument("--gap", type=int, default=6, help="Delay between registrations in seconds (default: 6)")
     parser.add_argument("--no-9router", action="store_true", help="Skip 9router database injection")
     args = parser.parse_args()
 
-    asyncio.run(main_async(args.count, not args.no_9router))
+    asyncio.run(main_async(args.count, not args.no_9router, args.gap))
 
 
 if __name__ == "__main__":
